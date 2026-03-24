@@ -1,13 +1,18 @@
 import os
 from datetime import datetime, timedelta
-from typing import Optional, Union, Any
+from typing import Optional
 
+from dotenv import load_dotenv
 from jose import jwt
 from passlib.context import CryptContext
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-SECRET_KEY = os.environ.get("SECRET_KEY", "aa01a1c3e1e24bc1c90539c3e9a7e0892095ce8011cd88cb151e3a620e7af8d9")
+load_dotenv()
+
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    raise RuntimeError("SECRET_KEY is required and must be set in environment.")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7 # 7 days
 
