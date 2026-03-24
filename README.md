@@ -35,3 +35,13 @@ AI Study Companion is a full-stack web app that delivers personalized tutoring, 
 **Docs**
 - Hindsight: `https://hindsight.vectorize.io`
 - Groq Console: `https://console.groq.com`
+
+**CI/CD**
+- CI workflow: `.github/workflows/ci.yml`
+  - Backend dependency install + Python compile check
+  - Frontend dependency install + production build
+- CD workflow: `.github/workflows/cd.yml`
+  - Builds and pushes backend/frontend Docker images to GHCR on `main` or manual trigger
+  - Image names:
+    - `ghcr.io/<owner>/ai-study-companion-backend`
+    - `ghcr.io/<owner>/ai-study-companion-frontend`
