@@ -7,15 +7,14 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+# Load .env before importing modules that read environment variables.
+load_dotenv()
+
 from routers.chat import router as chat_router
 from routers.quiz import router as quiz_router
 from routers.study_plan import router as study_plan_router
 from routers.auth import router as auth_router
 
-from database import engine, Base
-Base.metadata.create_all(bind=engine)
-
-load_dotenv()
 
 logging.basicConfig(
     level=logging.INFO,

@@ -1,4 +1,4 @@
-﻿# AI Study Companion
+# AI Study Companion
 
 AI Study Companion is a full-stack web app that delivers personalized tutoring, quizzes, and study plans using long-term memory. The backend pulls the student’s Hindsight memory, injects it into every Groq prompt, and saves new insights back after each interaction.
 
@@ -12,6 +12,15 @@ AI Study Companion is a full-stack web app that delivers personalized tutoring, 
 2. Fill in `.env` with your API keys and pipeline ID.
 3. Run `docker-compose up --build`.
 4. Open `http://localhost:3000`.
+
+**Hindsight API**
+- `pip` (API only): `pip install hindsight-api` then `hindsight-api` (runs on `http://localhost:8888`).
+- Docker (full): included as `hindsight` service in `docker-compose.yml`.
+- LLM envs for Hindsight:
+  - `GROQ_API_KEY`
+  - `GROQ_BASE_URL=https://api.groq.com/openai/v1`
+  - `HINDSIGHT_API_LLM_MODEL=gpt-oss-20b`
+  - `HINDSIGHT_API_LLM_API_KEY` (set same as `GROQ_API_KEY`)
 
 **Local Dev (No Docker)**
 1. Ensure Python 3.11+ and Node 20+ are installed.

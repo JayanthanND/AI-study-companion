@@ -2,15 +2,13 @@ from __future__ import annotations
 
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 
 
-class UserInDB(BaseModel):
+class MemoryInDB(BaseModel):
     id: Optional[str] = Field(default=None, alias="_id")
-    username: str
-    email: EmailStr
-    hashed_password: str
-    is_active: bool = True
+    user_id: str
+    content: str
 
     class Config:
         populate_by_name = True

@@ -1,24 +1,18 @@
 import os
-from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base
-from sqlalchemy.orm import sessionmaker
+from motor.motor_asyncio import AsyncIOMotorClient
+from dotenv import load_dotenv
 
-SQLALCHEMY_DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./studycompanion.db")
+load_dotenv()
 
-if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
-    engine = create_engine(
-        SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
-    )
-else:
-    engine = create_engine(SQLALCHEMY_DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+MONGODB_URL = os.getenv("DATABASE_URL", "mongodb://localhost:27017")
+MONGODB_DB_NAME = os.getenv("DATABASE_NAME", "studycompanion")
 
-Base = declarative_base()
+client = AsyncIOMotorClient(MONGODB_URL)
+database = client[MONGODB_DB_NAME]
 
 # Dependency
-def get_db():
-    db = SessionLocal()
+async def get_db():
     try:
-        yield db
+        yield database
     finally:
-        db.close()
+        pass

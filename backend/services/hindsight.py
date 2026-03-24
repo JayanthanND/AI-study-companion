@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Optional
+from typing import Any, Dict
 
+from dotenv import load_dotenv
 import httpx
 
 logger = logging.getLogger("hindsight")
+
+load_dotenv()
 
 HINDSIGHT_BASE_URL = os.getenv("HINDSIGHT_BASE_URL", "https://hindsight.vectorize.io")
 HINDSIGHT_API_KEY = os.getenv("HINDSIGHT_API_KEY", "")
@@ -54,51 +57,102 @@ def serialize_memory(memory_dict: dict) -> str:
     )
 
 
-def _headers() -> dict[str, str]:
-    if not HINDSIGHT_API_KEY:
-        return {}
-    return {"Authorization": f"Bearer {HINDSIGHT_API_KEY}"}
+from database import database
 
 
-def _memory_url(user_id: str) -> str:
-    return f"{HINDSIGHT_BASE_URL}/api/v1/memory/{HINDSIGHT_PIPELINE_ID}/{user_id}"
+def _auth_headers() -> Dict[str, str]:
+    headers: Dict[str, str] = {}
+    if HINDSIGHT_API_KEY:
+        headers["Authorization"] = f"Bearer {HINDSIGHT_API_KEY}"
+    return headers
 
+
+async def _get_memory_from_hindsight(user_id: str) -> str | None:
+    if not HINDSIGHT_BASE_URL:
+        return None
+
+    base = HINDSIGHT_BASE_URL.rstrip("/")
+    candidates = [
+        f"{base}/memory/{user_id}",
+        f"{base}/memories/{user_id}",
+        f"{base}/api/memory/{user_id}",
+        f"{base}/api/memories/{user_id}",
+    ]
+
+    params = {"pipeline_id": HINDSIGHT_PIPELINE_ID} if HINDSIGHT_PIPELINE_ID else None
+    headers = _auth_headers()
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        for url in candidates:
+            try:
+                response = await client.get(url, headers=headers, params=params)
+                if response.status_code >= 400:
+                    continue
+                data: Any = response.json()
+                if isinstance(data, dict):
+                    content = data.get("content") or data.get("memory") or data.get("text")
+                    if isinstance(content, str) and content.strip():
+                        return content
+            except Exception:
+                continue
+    return None
+
+
+async def _save_memory_to_hindsight(user_id: str, content: str) -> bool:
+    if not HINDSIGHT_BASE_URL:
+        return False
+
+    base = HINDSIGHT_BASE_URL.rstrip("/")
+    candidates = [
+        f"{base}/memory/{user_id}",
+        f"{base}/memories/{user_id}",
+        f"{base}/api/memory/{user_id}",
+        f"{base}/api/memories/{user_id}",
+    ]
+    headers = {"Content-Type": "application/json", **_auth_headers()}
+    payload: Dict[str, Any] = {"content": content}
+    if HINDSIGHT_PIPELINE_ID:
+        payload["pipeline_id"] = HINDSIGHT_PIPELINE_ID
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        for url in candidates:
+            try:
+                response = await client.put(url, headers=headers, json=payload)
+                if response.status_code < 400:
+                    return True
+                response = await client.post(url, headers=headers, json=payload)
+                if response.status_code < 400:
+                    return True
+            except Exception:
+                continue
+    return False
 
 async def get_memory(user_id: str) -> str:
-    if not HINDSIGHT_API_KEY or not HINDSIGHT_PIPELINE_ID:
-        logger.warning("Hindsight credentials missing; returning default memory")
-        return DEFAULT_MEMORY
-
-    url = _memory_url(user_id)
     logger.info("Fetching memory for user_id=%s", user_id)
     try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            response = await client.get(url, headers=_headers())
-            if response.status_code == 404:
-                logger.info("No memory found; returning default")
-                return DEFAULT_MEMORY
-            response.raise_for_status()
-            data = response.json()
-            content = data.get("content") if isinstance(data, dict) else None
-            return content or DEFAULT_MEMORY
-    except httpx.HTTPError as exc:
+        remote = await _get_memory_from_hindsight(user_id)
+        if remote:
+            return remote
+        doc = await database.memories.find_one({"user_id": user_id})
+        if doc and "content" in doc:
+            return doc["content"]
+        return DEFAULT_MEMORY
+    except Exception as exc:
         logger.exception("Failed to fetch memory: %s", exc)
         return DEFAULT_MEMORY
 
 
 async def save_memory(user_id: str, content: str) -> bool:
-    if not HINDSIGHT_API_KEY or not HINDSIGHT_PIPELINE_ID:
-        logger.warning("Hindsight credentials missing; skipping save")
-        return False
-
-    url = _memory_url(user_id)
-    payload = {"content": content}
     logger.info("Saving memory for user_id=%s", user_id)
     try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            response = await client.put(url, json=payload, headers=_headers())
-            response.raise_for_status()
+        if await _save_memory_to_hindsight(user_id, content):
             return True
-    except httpx.HTTPError as exc:
+        await database.memories.update_one(
+            {"user_id": user_id},
+            {"$set": {"content": content}},
+            upsert=True
+        )
+        return True
+    except Exception as exc:
         logger.exception("Failed to save memory: %s", exc)
         return False

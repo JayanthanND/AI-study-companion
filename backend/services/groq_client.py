@@ -1,24 +1,26 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import logging
 import os
 from typing import Optional
 
+from dotenv import load_dotenv
 from groq import Groq
 
 logger = logging.getLogger("groq")
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 MODEL_NAME = "llama-3.3-70b-versatile"
 
 
 def call_groq(system_prompt: str, user_message: str) -> str:
-    if not GROQ_API_KEY:
+    load_dotenv()
+    groq_api_key = os.getenv("GROQ_API_KEY", "")
+    if not groq_api_key:
         logger.warning("GROQ_API_KEY missing; returning fallback response")
         return "I'm ready to help, but the Groq API key is missing."
 
     try:
-        client = Groq(api_key=GROQ_API_KEY)
+        client = Groq(api_key=groq_api_key)
         response = client.chat.completions.create(
             model=MODEL_NAME,
             messages=[
