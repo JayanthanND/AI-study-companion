@@ -1,4 +1,4 @@
-﻿export interface ChatRequest {
+export interface ChatRequest {
   user_id: string;
   message: string;
 }
@@ -83,19 +83,58 @@ export interface StudyPlanResponse {
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+import { getToken } from "./auth";
+
+function getAuthHeaders() {
+  const token = getToken();
+  return {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(text || `Request failed: ${response.status}`);
+    let errorMsg = text;
+    try {
+        const json = JSON.parse(text);
+        if (json.detail) {
+            errorMsg = typeof json.detail === "string" ? json.detail : JSON.stringify(json.detail);
+        }
+    } catch (e) {}
+    throw new Error(errorMsg || `Request failed: ${response.status}`);
   }
   return (await response.json()) as T;
+}
+
+export async function login(payload: any) {
+  const formData = new URLSearchParams();
+  formData.append("username", payload.username);
+  formData.append("password", payload.password);
+  
+  const response = await fetch(`${BASE_URL}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: formData.toString()
+  });
+  return await handleResponse<{access_token: string}>(response);
+}
+
+export async function signup(payload: any) {
+  const response = await fetch(`${BASE_URL}/auth/signup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  return await handleResponse<any>(response);
 }
 
 export async function sendChat(payload: ChatRequest): Promise<ChatResponse> {
   try {
     const response = await fetch(`${BASE_URL}/api/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getAuthHeaders(),
       body: JSON.stringify(payload),
     });
     return await handleResponse<ChatResponse>(response);
@@ -108,7 +147,7 @@ export async function generateQuiz(payload: QuizRequest): Promise<QuizResponse> 
   try {
     const response = await fetch(`${BASE_URL}/api/quiz/generate`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getAuthHeaders(),
       body: JSON.stringify(payload),
     });
     return await handleResponse<QuizResponse>(response);
@@ -121,7 +160,7 @@ export async function submitQuiz(payload: QuizSubmitRequest): Promise<QuizResult
   try {
     const response = await fetch(`${BASE_URL}/api/quiz/submit`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getAuthHeaders(),
       body: JSON.stringify(payload),
     });
     return await handleResponse<QuizResult>(response);
@@ -134,7 +173,7 @@ export async function getStudyPlan(payload: StudyPlanRequest): Promise<StudyPlan
   try {
     const response = await fetch(`${BASE_URL}/api/study-plan`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getAuthHeaders(),
       body: JSON.stringify(payload),
     });
     return await handleResponse<StudyPlanResponse>(response);
