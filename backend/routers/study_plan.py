@@ -1,15 +1,16 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import logging
 import re
 from typing import List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from models.study_plan import StudyPlanRequest, StudyPlanResponse, StudyDay, StudySession
 from services.groq_client import call_groq
 from services.hindsight import get_memory
+from core.security import get_current_user
 
 logger = logging.getLogger("router.study_plan")
 
@@ -52,11 +53,15 @@ def _fallback_plan() -> List[StudyDay]:
 
 
 @router.post("/study-plan", response_model=StudyPlanResponse)
-async def generate_plan(request: StudyPlanRequest) -> StudyPlanResponse:
+async def generate_plan(
+    request: StudyPlanRequest,
+    current_user=Depends(get_current_user),
+) -> StudyPlanResponse:
     try:
-        memory = await get_memory(request.user_id)
+        user_id = current_user["user_id"]
+        memory = await get_memory(user_id)
         system_prompt = _build_plan_prompt(memory)
-        logger.info("Calling Groq for study plan user_id=%s", request.user_id)
+        logger.info("Calling Groq for study plan user_id=%s", user_id)
         raw = call_groq(system_prompt, "Create a weekly study plan.")
         try:
             data = _extract_json(raw)

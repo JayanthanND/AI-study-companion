@@ -6,7 +6,7 @@ import re
 from datetime import datetime
 from typing import List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from models.quiz import (
     QuizRequest,
@@ -18,6 +18,7 @@ from models.quiz import (
 )
 from services.groq_client import call_groq
 from services.hindsight import get_memory, save_memory, parse_memory, serialize_memory
+from core.security import get_current_user
 
 logger = logging.getLogger("router.quiz")
 
@@ -62,11 +63,15 @@ def _fallback_questions(subject: str) -> List[QuizQuestion]:
 
 
 @router.post("/generate", response_model=QuizResponse)
-async def generate_quiz(request: QuizRequest) -> QuizResponse:
+async def generate_quiz(
+    request: QuizRequest,
+    current_user=Depends(get_current_user),
+) -> QuizResponse:
     try:
-        memory = await get_memory(request.user_id)
+        user_id = current_user["user_id"]
+        memory = await get_memory(user_id)
         system_prompt = _build_quiz_prompt(memory, request.subject)
-        logger.info("Calling Groq for quiz generation user_id=%s", request.user_id)
+        logger.info("Calling Groq for quiz generation user_id=%s", user_id)
         raw = call_groq(system_prompt, "Generate 5 personalized questions.")
         try:
             data = _extract_json(raw)
@@ -84,7 +89,10 @@ async def generate_quiz(request: QuizRequest) -> QuizResponse:
 
 
 @router.post("/submit", response_model=QuizResult)
-async def submit_quiz(request: QuizSubmitRequest) -> QuizResult:
+async def submit_quiz(
+    request: QuizSubmitRequest,
+    current_user=Depends(get_current_user),
+) -> QuizResult:
     try:
         total = len(request.answers)
         feedback: List[QuizFeedback] = []
@@ -110,7 +118,8 @@ async def submit_quiz(request: QuizSubmitRequest) -> QuizResult:
                 )
             )
 
-        memory = await get_memory(request.user_id)
+        user_id = current_user["user_id"]
+        memory = await get_memory(user_id)
         timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
         mem_dict = parse_memory(memory)
         mem_dict["Last session"] = timestamp
@@ -129,7 +138,7 @@ async def submit_quiz(request: QuizSubmitRequest) -> QuizResult:
         mem_dict["Subjects studied"] = "[" + ", ".join(cleaned_subjects) + "]"
 
         updated_memory = serialize_memory(mem_dict)
-        await save_memory(request.user_id, updated_memory)
+        await save_memory(user_id, updated_memory)
 
         return QuizResult(score=score, total=total, feedback=feedback)
     except Exception as exc:

@@ -3,12 +3,13 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 
-from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 # Load .env before importing modules that read environment variables.
-load_dotenv()
+from core.env import load_project_env
+
+load_project_env()
 
 from routers.chat import router as chat_router
 from routers.quiz import router as quiz_router

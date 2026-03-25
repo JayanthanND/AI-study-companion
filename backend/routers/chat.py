@@ -6,10 +6,12 @@ from datetime import datetime
 from typing import Tuple
 
 from fastapi import APIRouter, HTTPException
+from fastapi import Depends
 
 from models.chat import ChatRequest, ChatResponse
 from services.groq_client import call_groq
 from services.hindsight import get_memory, save_memory, parse_memory, serialize_memory
+from core.security import get_current_user
 
 logger = logging.getLogger("router.chat")
 
@@ -39,11 +41,12 @@ def _parse_reply(content: str) -> Tuple[str, str]:
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest) -> ChatResponse:
+async def chat(request: ChatRequest, current_user=Depends(get_current_user)) -> ChatResponse:
     try:
-        memory = await get_memory(request.user_id)
+        user_id = current_user["user_id"]
+        memory = await get_memory(user_id)
         system_prompt = _build_system_prompt(memory)
-        logger.info("Calling Groq for chat user_id=%s", request.user_id)
+        logger.info("Calling Groq for chat user_id=%s", user_id)
         raw = call_groq(system_prompt, request.message)
         reply, insight = _parse_reply(raw)
 
@@ -60,7 +63,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
         mem_dict["Student weak topics"] = "[" + ", ".join(cleaned_topics) + "]"
         
         updated_memory = serialize_memory(mem_dict)
-        await save_memory(request.user_id, updated_memory)
+        await save_memory(user_id, updated_memory)
         return ChatResponse(reply=reply)
     except Exception as exc:
         logger.exception("Chat endpoint failed: %s", exc)

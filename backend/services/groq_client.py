@@ -4,23 +4,36 @@ import logging
 import os
 from typing import Optional
 
-from dotenv import load_dotenv
 from groq import Groq
 
 logger = logging.getLogger("groq")
 
-MODEL_NAME = "llama-3.3-70b-versatile"
+MODEL_NAME = os.getenv("GROQ_MODEL_NAME", "llama-3.3-70b-versatile")
+DEFAULT_GROQ_BASE_URL = "https://api.groq.com"
+
+
+def _normalize_groq_base_url(raw_base_url: str) -> str:
+    """
+    The Groq SDK expects base_url WITHOUT the `/openai/v1` suffix.
+
+    If the user sets `GROQ_BASE_URL=https://api.groq.com/openai/v1`,
+    the SDK will otherwise end up calling `/openai/v1/openai/v1/...` (double prefix).
+    """
+    base = raw_base_url.strip().rstrip("/")
+    if base.endswith("/openai/v1"):
+        base = base[: -len("/openai/v1")]
+    return base or DEFAULT_GROQ_BASE_URL
 
 
 def call_groq(system_prompt: str, user_message: str) -> str:
-    load_dotenv()
     groq_api_key = os.getenv("GROQ_API_KEY", "")
     if not groq_api_key:
         logger.warning("GROQ_API_KEY missing; returning fallback response")
         return "I'm ready to help, but the Groq API key is missing."
 
     try:
-        client = Groq(api_key=groq_api_key)
+        groq_base_url = _normalize_groq_base_url(os.getenv("GROQ_BASE_URL", DEFAULT_GROQ_BASE_URL))
+        client = Groq(api_key=groq_api_key, base_url=groq_base_url)
         response = client.chat.completions.create(
             model=MODEL_NAME,
             messages=[

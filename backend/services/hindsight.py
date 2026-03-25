@@ -4,12 +4,13 @@ import logging
 import os
 from typing import Any, Dict
 
-from dotenv import load_dotenv
 import httpx
+
+from core.env import load_project_env
 
 logger = logging.getLogger("hindsight")
 
-load_dotenv()
+load_project_env()
 
 HINDSIGHT_BASE_URL = os.getenv("HINDSIGHT_BASE_URL", "https://hindsight.vectorize.io")
 HINDSIGHT_API_KEY = os.getenv("HINDSIGHT_API_KEY", "")

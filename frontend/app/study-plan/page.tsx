@@ -1,22 +1,34 @@
-﻿"use client";
+"use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import Spinner from "../../components/Spinner";
 import StudyDayCard from "../../components/StudyDayCard";
 import { getStudyPlan, StudyPlanResponse } from "../../lib/api";
-
-const USER_ID = "student_001";
+import { getUserIdFromToken } from "../../lib/auth";
 
 export default function StudyPlanPage() {
+  const router = useRouter();
   const [plan, setPlan] = useState<StudyPlanResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const id = getUserIdFromToken();
+    setUserId(id);
+    if (!id) router.push("/login");
+  }, [router]);
 
   const handleGenerate = async () => {
+    if (!userId) {
+      setError("Please log in to continue.");
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
-      const response = await getStudyPlan({ user_id: USER_ID });
+      const response = await getStudyPlan({ user_id: userId });
       setPlan(response);
     } catch (err) {
       setError("Unable to fetch study plan.");

@@ -20,3 +20,23 @@ export function removeToken() {
 export function isAuthenticated(): boolean {
   return !!getToken();
 }
+
+function decodeBase64Url(input: string): string {
+  const base64 = input.replace(/-/g, "+").replace(/_/g, "/");
+  const pad = base64.length % 4 === 0 ? "" : "=".repeat(4 - (base64.length % 4));
+  return atob(base64 + pad);
+}
+
+export function getUserIdFromToken(): string | null {
+  const token = getToken();
+  if (!token) return null;
+  try {
+    const payloadPart = token.split(".")[1];
+    if (!payloadPart) return null;
+    const payloadJson = decodeBase64Url(payloadPart);
+    const payload = JSON.parse(payloadJson) as { user_id?: string };
+    return payload.user_id ?? null;
+  } catch {
+    return null;
+  }
+}

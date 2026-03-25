@@ -1,27 +1,39 @@
-﻿"use client";
+"use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import ChatBubble from "../components/ChatBubble";
 import { sendChat, ChatMessage } from "../lib/api";
 import Spinner from "../components/Spinner";
-
-const USER_ID = "student_001";
+import { getUserIdFromToken } from "../lib/auth";
 
 export default function ChatPage() {
+  const router = useRouter();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const id = getUserIdFromToken();
+    setUserId(id);
+    if (!id) router.push("/login");
+  }, [router]);
 
   const handleSend = async () => {
     if (!input.trim()) return;
+    if (!userId) {
+      setError("Please log in to continue.");
+      return;
+    }
     const userMessage: ChatMessage = { role: "user", content: input.trim() };
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
     setLoading(true);
     setError(null);
     try {
-      const reply = await sendChat({ user_id: USER_ID, message: userMessage.content });
+      const reply = await sendChat({ user_id: userId, message: userMessage.content });
       const assistantMessage: ChatMessage = { role: "assistant", content: reply.reply };
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (err) {

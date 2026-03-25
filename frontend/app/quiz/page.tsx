@@ -1,6 +1,7 @@
-﻿"use client";
+"use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import QuizCard from "../../components/QuizCard";
 import Spinner from "../../components/Spinner";
 import {
@@ -10,24 +11,35 @@ import {
   QuizResult,
   QuizAnswer,
 } from "../../lib/api";
-
-const USER_ID = "student_001";
+import { getUserIdFromToken } from "../../lib/auth";
 const SUBJECTS = ["Maths", "Physics", "Chemistry", "CS", "English"] as const;
 
 export default function QuizPage() {
+  const router = useRouter();
   const [subject, setSubject] = useState<string>(SUBJECTS[0]);
   const [questions, setQuestions] = useState<QuizQuestion[]>([]);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [result, setResult] = useState<QuizResult | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const id = getUserIdFromToken();
+    setUserId(id);
+    if (!id) router.push("/login");
+  }, [router]);
 
   const handleGenerate = async () => {
+    if (!userId) {
+      setError("Please log in to continue.");
+      return;
+    }
     setLoading(true);
     setError(null);
     setResult(null);
     try {
-      const response = await generateQuiz({ user_id: USER_ID, subject });
+      const response = await generateQuiz({ user_id: userId, subject });
       setQuestions(response.questions);
       setAnswers({});
     } catch (err) {
@@ -43,6 +55,10 @@ export default function QuizPage() {
 
   const handleSubmit = async () => {
     if (questions.length === 0) return;
+    if (!userId) {
+      setError("Please log in to continue.");
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -54,7 +70,7 @@ export default function QuizPage() {
         explanation: q.explanation,
         topic: q.topic,
       }));
-      const response = await submitQuiz({ user_id: USER_ID, subject, answers: payloadAnswers });
+      const response = await submitQuiz({ user_id: userId, subject, answers: payloadAnswers });
       setResult(response);
     } catch (err) {
       setError("Unable to submit quiz right now.");
