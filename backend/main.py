@@ -1,20 +1,19 @@
-from __future__ import annotations
-
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-# Load .env before importing modules that read environment variables.
 from core.env import load_project_env
+
 
 load_project_env()
 
+from routers.auth import router as auth_router
 from routers.chat import router as chat_router
 from routers.quiz import router as quiz_router
 from routers.study_plan import router as study_plan_router
-from routers.auth import router as auth_router
 
 
 logging.basicConfig(
@@ -31,7 +30,22 @@ async def lifespan(app: FastAPI):
     logger.info("Backend shutting down")
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(title="AI Study Companion API", lifespan=lifespan)
+
+_default_origins = {
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "http://localhost:3002",
+    "http://localhost:8001",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:3001",
+    "http://127.0.0.1:3002",
+}
+_configured_origins = {
+    origin.strip()
+    for origin in os.getenv("CORS_ORIGINS", "").split(",")
+    if origin.strip()
+}
 
 allowed_origins = [
     "http://localhost:3000",
@@ -48,6 +62,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/health", tags=["system"])
+async def health() -> dict[str, str]:
+    return {"status": "ok"}
+
 
 app.include_router(chat_router)
 app.include_router(quiz_router)

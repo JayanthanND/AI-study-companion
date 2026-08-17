@@ -1,20 +1,20 @@
-from __future__ import annotations
-
 import json
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from core.security import get_current_user
 from models.quiz import (
-    QuizRequest,
-    QuizResponse,
-    QuizSubmitRequest,
-    QuizResult,
+    QuizAnswer,
     QuizFeedback,
     QuizQuestion,
+    QuizRequest,
+    QuizResponse,
+    QuizResult,
+    QuizSubmitRequest,
 )
 from services.groq_client import call_groq
 from services.hindsight import (
@@ -27,8 +27,8 @@ from services.hindsight import (
 )
 from core.security import get_current_user
 
-logger = logging.getLogger("router.quiz")
 
+logger = logging.getLogger("router.quiz")
 router = APIRouter(prefix="/api/quiz", tags=["quiz"])
 
 
@@ -38,13 +38,9 @@ def _build_quiz_prompt(memory: str, subject: str) -> str:
         "Use the student's memory to target weak topics in the given subject.\n"
         "Prioritize topics explicitly mentioned as weak or recently mistaken.\n"
         "Return ONLY valid JSON in this format:\n"
-        "{\"questions\": [\n"
-        "  {\"id\": \"q1\", \"question\": \"...\", \"options\": [\"A\", \"B\", \"C\", \"D\"], "
-        "\"answer\": \"A\", \"explanation\": \"...\", \"topic\": \"...\"}\n"
-        "]}\n\n"
-        f"Subject: {subject}\n"
-        "MEMORY CONTEXT:\n"
-        f"{memory}\n"
+        '{"questions": [{"id": "q1", "question": "...", "options": ["A", "B", "C", "D"], '
+        '"answer": "A", "explanation": "...", "topic": "..."}]}\n\n'
+        f"Subject: {subject}\nMEMORY CONTEXT:\n{memory}\n"
     )
 
 
@@ -89,20 +85,17 @@ async def generate_quiz(
     try:
         user_id = current_user["user_id"]
         memory = await get_memory(user_id)
-        system_prompt = _build_quiz_prompt(memory, request.subject)
-        logger.info("Calling Groq for quiz generation user_id=%s", user_id)
-        raw = call_groq(system_prompt, "Generate 5 personalized questions.")
         try:
             data = _extract_json(raw)
             questions_raw = data.get("questions", [])
             questions = _validate_questions([QuizQuestion(**q) for q in questions_raw])
         except Exception:
-            logger.warning("Failed to parse quiz JSON; using fallback")
+            logger.warning("Failed to parse quiz JSON; using fallback", exc_info=True)
             questions = _fallback_questions(request.subject)
         return QuizResponse(questions=questions)
     except Exception as exc:
         logger.exception("Quiz generation failed: %s", exc)
-        raise HTTPException(status_code=500, detail="Quiz generation failed")
+        raise HTTPException(status_code=500, detail="Quiz generation failed") from exc
 
 
 @router.post("/submit", response_model=QuizResult)
@@ -111,19 +104,15 @@ async def submit_quiz(
     current_user=Depends(get_current_user),
 ) -> QuizResult:
     try:
-        total = len(request.answers)
         feedback: List[QuizFeedback] = []
+        mistakes: list[str] = []
         score = 0
-        mistakes = []
 
         for answer in request.answers:
             is_correct = answer.selected.strip() == answer.correct.strip()
-            if is_correct:
-                score += 1
-            else:
-                mistakes.append(
-                    f"{request.subject} - {answer.topic}: missed '{answer.question}'"
-                )
+            score += int(is_correct)
+            if not is_correct:
+                mistakes.append(f"{request.subject} - {answer.topic}: missed '{answer.question}'")
             feedback.append(
                 QuizFeedback(
                     id=answer.id,
@@ -156,4 +145,4 @@ async def submit_quiz(
         return QuizResult(score=score, total=total, feedback=feedback)
     except Exception as exc:
         logger.exception("Quiz submission failed: %s", exc)
-        raise HTTPException(status_code=500, detail="Quiz submission failed")
+        raise HTTPException(status_code=500, detail="Quiz submission failed") from exc

@@ -28,7 +28,7 @@ export default function StudyPlanPage() {
     setLoading(true);
     setError(null);
     try {
-      const response = await getStudyPlan({ user_id: userId });
+      const response = await getStudyPlan({});
       setPlan(response);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to fetch study plan.");

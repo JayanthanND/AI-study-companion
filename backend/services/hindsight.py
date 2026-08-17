@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import logging
 import os
+from datetime import datetime, timedelta
 from typing import Any, Dict
 
 import httpx
@@ -10,8 +11,8 @@ import httpx
 from core.env import load_project_env
 from database import database
 
-logger = logging.getLogger("hindsight")
 
+logger = logging.getLogger("hindsight")
 load_project_env()
 
 HINDSIGHT_BASE_URL = os.getenv("HINDSIGHT_BASE_URL", "https://hindsight.vectorize.io")
@@ -22,16 +23,28 @@ DEFAULT_MEMORY = (
     "Student weak topics: []\n"
     "Recent mistakes: []\n"
     "Subjects studied: []\n"
+    "Learning insights: []\n"
     "Last session: []\n"
     "Upcoming exams: []\n"
     "Study streak: 0 days"
 )
+
+_MEMORY_DEFAULTS = {
+    "Student weak topics": "[]",
+    "Recent mistakes": "[]",
+    "Subjects studied": "[]",
+    "Learning insights": "[]",
+    "Last session": "[]",
+    "Upcoming exams": "[]",
+    "Study streak": "0 days",
+}
 
 
 MEMORY_DEFAULTS = {
     "Student weak topics": "[]",
     "Recent mistakes": "[]",
     "Subjects studied": "[]",
+    "Learning insights": "[]",
     "Last session": "[]",
     "Upcoming exams": "[]",
     "Study streak": "0 days",
@@ -55,6 +68,7 @@ def serialize_memory(memory_dict: dict[str, str]) -> str:
         f"Student weak topics: {memory_dict.get('Student weak topics', '[]')}\n"
         f"Recent mistakes: {memory_dict.get('Recent mistakes', '[]')}\n"
         f"Subjects studied: {memory_dict.get('Subjects studied', '[]')}\n"
+        f"Learning insights: {memory_dict.get('Learning insights', '[]')}\n"
         f"Last session: {memory_dict.get('Last session', '[]')}\n"
         f"Upcoming exams: {memory_dict.get('Upcoming exams', '[]')}\n"
         f"Study streak: {memory_dict.get('Study streak', '0 days')}"
@@ -76,6 +90,47 @@ def serialize_memory_list(items: list[str]) -> str:
     return repr(cleaned)
 
 
+def parse_list_value(raw: str) -> list[str]:
+    """Backward-compatible alias used by routers and tests."""
+    return parse_memory_list(raw)
+
+
+def format_list_value(items: list[str]) -> str:
+    return repr([item.strip() for item in items if item.strip()])
+
+
+def append_memory_item(memory_dict: dict[str, str], key: str, value: str, limit: int = 5) -> None:
+    items = parse_list_value(memory_dict.get(key, "[]"))
+    if value.strip():
+        items.append(value.strip())
+    memory_dict[key] = format_list_value(items[-limit:])
+
+
+def record_study_activity(memory_dict: dict[str, str], timestamp: str) -> None:
+    """Update the study streak once per UTC calendar day."""
+    today = datetime.strptime(timestamp[:10], "%Y-%m-%d").date()
+    previous_raw = memory_dict.get("Last session", "")
+    previous_date = None
+    try:
+        previous_date = datetime.strptime(previous_raw[:10], "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        pass
+
+    try:
+        current_streak = int(str(memory_dict.get("Study streak", "0")).split()[0])
+    except (TypeError, ValueError):
+        current_streak = 0
+
+    if previous_date == today:
+        next_streak = max(current_streak, 1)
+    elif previous_date == today - timedelta(days=1):
+        next_streak = max(current_streak, 0) + 1
+    else:
+        next_streak = 1
+    memory_dict["Study streak"] = f"{next_streak} days"
+    memory_dict["Last session"] = timestamp
+
+
 def _auth_headers() -> Dict[str, str]:
     headers: Dict[str, str] = {}
     if HINDSIGHT_API_KEY:
@@ -86,7 +141,6 @@ def _auth_headers() -> Dict[str, str]:
 async def _get_memory_from_hindsight(user_id: str) -> str | None:
     if not HINDSIGHT_BASE_URL:
         return None
-
     base = HINDSIGHT_BASE_URL.rstrip("/")
     candidates = [
         f"{base}/memory/{user_id}",
@@ -94,14 +148,11 @@ async def _get_memory_from_hindsight(user_id: str) -> str | None:
         f"{base}/api/memory/{user_id}",
         f"{base}/api/memories/{user_id}",
     ]
-
     params = {"pipeline_id": HINDSIGHT_PIPELINE_ID} if HINDSIGHT_PIPELINE_ID else None
-    headers = _auth_headers()
-
     async with httpx.AsyncClient(timeout=10.0) as client:
         for url in candidates:
             try:
-                response = await client.get(url, headers=headers, params=params)
+                response = await client.get(url, headers=_auth_headers(), params=params)
                 if response.status_code >= 400:
                     continue
                 data: Any = response.json()
@@ -114,14 +165,13 @@ async def _get_memory_from_hindsight(user_id: str) -> str | None:
                     if isinstance(content, str) and content.strip():
                         return content
             except Exception:
-                continue
+                logger.debug("Hindsight read failed for %s", url, exc_info=True)
     return None
 
 
 async def _save_memory_to_hindsight(user_id: str, content: str) -> bool:
     if not HINDSIGHT_BASE_URL:
         return False
-
     base = HINDSIGHT_BASE_URL.rstrip("/")
     candidates = [
         f"{base}/memory/{user_id}",
@@ -144,7 +194,7 @@ async def _save_memory_to_hindsight(user_id: str, content: str) -> bool:
                 if response.status_code < 400:
                     return True
             except Exception:
-                continue
+                logger.debug("Hindsight write failed for %s", url, exc_info=True)
     return False
 
 
@@ -155,11 +205,11 @@ async def get_memory(user_id: str) -> str:
         if remote:
             return remote
         doc = await database.memories.find_one({"user_id": user_id})
-        if doc and "content" in doc:
+        if doc and isinstance(doc.get("content"), str):
             return doc["content"]
         return DEFAULT_MEMORY
-    except Exception as exc:
-        logger.exception("Failed to fetch memory: %s", exc)
+    except Exception:
+        logger.exception("Failed to fetch memory")
         return DEFAULT_MEMORY
 
 
@@ -174,6 +224,6 @@ async def save_memory(user_id: str, content: str) -> bool:
             upsert=True,
         )
         return True
-    except Exception as exc:
-        logger.exception("Failed to save memory: %s", exc)
+    except Exception:
+        logger.exception("Failed to save memory")
         return False
